@@ -1,0 +1,282 @@
+@App:name("PStr_Project_56926_56969_57213")
+
+
+---------------------------------------------------- Define source stream ---------------------------------------------------
+
+@source(type="kafka", topic.list="debs", partition.no.list="0", threading.option="single.thread", group.id="group", bootstrap.servers="kafka:9092", @map(type="csv"))
+define stream TaxiRidesProductionStream (medallion string, hack_license string, pickup_datetime string, dropoff_datetime string, trip_time_in_secs double, trip_distance double, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, payment_type string, fare_amount double, surcharge double, mta_tax double, tip_amount double, tolls_amount double, total_amount double);
+
+
+------------------------------------------------------ General Sinks ------------------------------------------------------ 
+
+-- -- Stream with all the null values and outliers filtered
+-- @sink(type='log', prefix='ProcessedStream:')
+-- define stream ProcessedStream (medallion string, hack_license string, pickup_datetime string, dropoff_datetime string, pickup_datetime_millisec long, dropoff_datetime_millisec long, trip_time_in_secs double, trip_distance double, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, payment_type string, fare_amount double, surcharge double, mta_tax double, tip_amount double, tolls_amount double, total_amount double);
+
+-- -- Stream with grid cells of 250m x 250m
+-- @sink(type='log', prefix='SmallAreaStream:')
+-- define stream SmallAreaStream (medallion string, hack_license string, pickup_datetime string, dropoff_datetime string, pickup_datetime_millisec long, dropoff_datetime_millisec long, trip_time_in_secs double, trip_distance double, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, payment_type string, fare_amount double, surcharge double, mta_tax double, tip_amount double, tolls_amount double, total_amount double, pickup_cell string, dropoff_cell string);
+
+-- -- Stream with grid cells of 500m x 500m
+-- @sink(type='log', prefix='BigAreaStream:')
+-- define stream BigAreaStream (medallion string, hack_license string, pickup_datetime string, dropoff_datetime string, pickup_datetime_millisec long, dropoff_datetime_millisec long, trip_time_in_secs double, trip_distance double, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, payment_type string, fare_amount double, surcharge double, mta_tax double, tip_amount double, tolls_amount double, total_amount double, pickup_cell string, dropoff_cell string);
+
+-- -- Stream with routes using grid cells of 500m x 500m
+-- @sink(type='log', prefix='RouteStream:')
+-- define stream RouteStream (medallion string, hack_license string, pickup_datetime string, dropoff_datetime string, pickup_datetime_millisec long, dropoff_datetime_millisec long, trip_time_in_secs double, trip_distance double, pickup_longitude double, pickup_latitude double, dropoff_longitude double, dropoff_latitude double, payment_type string, fare_amount double, surcharge double, mta_tax double, tip_amount double, tolls_amount double, total_amount double, route string);
+
+
+------------------------------------------------ Sinks for Query 1 ------------------------------------------------
+
+-- -- Stream with the number of routes in the last 30 minutes
+-- @sink(type='log', prefix='CountRoutes:')
+-- define stream CountRoutes (route string, count long);
+
+-- -- Stream with the 10 most frequent routes in the last 30 minutes
+-- @sink(type='log', prefix='FrequentRoutes:')
+-- define stream FrequentRoutes (route string, count long);
+
+
+------------------------------------------------ Sinks for Query 2 ------------------------------------------------
+
+-- -- Stream with the average profit for a given area in the last 15 minutes
+-- @sink(type='log', prefix='AvgProfitStream:')
+-- define stream AvgProfitStream (avg_profit double, pickup_cell string);
+
+-- -- Stream with the needed information for the next computations in the last 30 minutes
+-- @sink(type='log', prefix='Taxis30:')
+-- define stream Taxis30 (dropoff_cell string, pickup_cell string, medallion string);
+
+-- -- Stream with the total number of taxis that had a dropoff in a given cell in the last 30 minutes
+-- @sink(type='log', prefix='AllTaxis:')
+-- define stream AllTaxis (dropoff_cell string, pickup_cell string, count_taxis long);
+
+-- -- Stream with the number of busy taxis (taxis that had a dropoff followed by a pickup in the last 30 minutes in a given cell)
+-- @sink(type='log', prefix='BusyTaxis:')
+-- define stream BusyTaxis (dropoff_cell string, count_busy_taxis long);
+
+-- -- Stream with the number of empty taxis (total number of taxis - number of busy taxis) in a given cell in the last 30 minutes
+-- @sink(type='log', prefix='EmptyTaxis:')
+-- define stream EmptyTaxis (dropoff_cell string, count_empty_taxis long);
+
+-- -- Stream with average profitability (profit in the last 15 minutes divided by number of empty taxis in the last 30 minutes) in a given cell
+-- @sink(type='log', prefix='Profitability:')
+-- define stream Profitability (pickup_cell string, profitability double);
+
+
+------------------------------------------------ Sinks for Query 3 ------------------------------------------------
+
+-- -- Stream with the idle time for taxis (time between a dropoff of a ride and the pickup of the following ride)
+-- @sink(type='log', prefix='IdleTime:')
+-- define stream IdleTime (idle_time long);
+
+-- -- Stream with the idle time in minutes
+-- @sink(type='log', prefix='IdleTimeMin:')
+-- define stream IdleTimeMin (idle_time_min int);
+
+-- -- Stream with average idle time in the last 30 minutes
+-- @sink(type='log', prefix='AvgIdleTime:')
+-- define stream AvgIdleTime (average_idle_time double);
+
+-- -- Stream with an alert message whenever the average idle time is greater than 5 minutes
+-- @sink(type='log', prefix='AlertStream:')
+-- define stream AlertStream (alert string, average_idle_time double);
+
+
+------------------------------------------------ Sinks for Query 4 ------------------------------------------------
+
+-- -- Stream with an alert message whenever there is a congested area (area with peak in the duration of rides that is followed by at least 3 rides all increasing in their duration)
+-- @sink(type='log', prefix='Query4')
+-- define stream CongestedAreas (alert string, area string);
+
+
+------------------------------------------------ Sinks for Query 5 ------------------------------------------------
+
+-- -- Stream with the most pleasant taxi driver (the taxi driver with the hight average tip percentage)
+-- @sink(type='log', prefix='PleasantTaxiDriver:')
+-- define stream PleasantTaxiDriver(hack_license string, avg_tip_percentage double);
+
+
+------------------------------------------------ Sinks for Query 6 ------------------------------------------------
+
+-- Because the math:round in SiddhiQL only returns the number with 0 decimal cases, we created a function to return the values rounded to two decimal cases
+define function round_value[JavaScript] return double {
+    var value = data[0];
+    return Math.round(value*100)/100;
+};
+
+-- -- Stream with some statistics regarding the total paid amount for the areas where taxi drivers make more money
+-- @sink(type='log', prefix='Statistics:')
+-- define stream Statistics(pickup_cell string, sum_total_amount double, fare double, tip double, surcharge double, tolls double, mta_tax double);
+
+
+------------------------------------------------ Sinks for Query 7 ------------------------------------------------
+
+-- -- Stream with the amount of money made per mile traveled for each route
+-- @sink(type='log', prefix='AmountPerMile:')
+-- define stream AmountPerMile (route string, amount_per_mile double);
+
+
+
+------------------------------------------------ Computations for General Streams ------------------------------------------------
+
+-- We filter the locations out of area and null and extreme values
+-- 41.474937, -74.913585 marks the center of the first cell -> We add 250 m north in the latitude and 250 m west in the longitude to mark the upper left corner of the grid
+from TaxiRidesProductionStream 
+select medallion, hack_license, pickup_datetime, dropoff_datetime, time:timestampInMilliseconds(pickup_datetime,"yyyy-MM-dd HH:mm:ss") as pickup_datetime_millisec, time:timestampInMilliseconds(dropoff_datetime,"yyyy-MM-dd HH:mm:ss") as dropoff_datetime_millisec, trip_time_in_secs, trip_distance, pickup_longitude, pickup_latitude, dropoff_longitude, dropoff_latitude, payment_type, fare_amount, surcharge, mta_tax, tip_amount, tolls_amount, total_amount
+having pickup_longitude >= -74.916578 and pickup_longitude <= -73.120778 and dropoff_longitude >= -74.916578 and dropoff_longitude <= -73.120778 and pickup_latitude >=40.12971598 and pickup_latitude <= 41.47718278 and dropoff_latitude >= 40.12971598 and dropoff_latitude <= 41.47718278 and trip_distance <= 25 and trip_distance > 0 and trip_time_in_secs <= 3600 and trip_time_in_secs > 0 and total_amount <= 80 and total_amount > 0  
+insert into ProcessedStream;
+
+-- Compute grid cells of 250m x 250m from the coordinates 
+from ProcessedStream
+select medallion, hack_license, pickup_datetime, dropoff_datetime, pickup_datetime_millisec, dropoff_datetime_millisec, trip_time_in_secs, trip_distance, pickup_longitude, pickup_latitude, dropoff_longitude, dropoff_latitude, payment_type, fare_amount, surcharge, mta_tax, tip_amount, tolls_amount, total_amount, str:concat(convert(convert(math:ceil((pickup_latitude - 41.47718278)/(-0.004491556/2)),"int"),"string"), "-", convert(convert(math:ceil((pickup_longitude + 74.916578)/(0.005986/2)),"int"),"string")) as pickup_cell, str:concat(convert(convert(math:ceil((dropoff_latitude - 41.47718278)/(-0.004491556/2)),"int"),"string"), "-", convert(convert(math:ceil((dropoff_longitude + 74.916578)/(0.005986/2)),"int"),"string")) as dropoff_cell
+insert into SmallAreaStream;
+
+-- Compute grid cells of 500m x 500m from the coordinates 
+from ProcessedStream
+select medallion, hack_license, pickup_datetime, dropoff_datetime, pickup_datetime_millisec, dropoff_datetime_millisec, trip_time_in_secs, trip_distance, pickup_longitude, pickup_latitude, dropoff_longitude, dropoff_latitude, payment_type, fare_amount, surcharge, mta_tax, tip_amount, tolls_amount, total_amount, str:concat(convert(convert(math:ceil((pickup_latitude - 41.47718278)/-0.004491556),"int"),"string"), "-", convert(convert(math:ceil((pickup_longitude + 74.916578)/0.005986),"int"),"string")) as pickup_cell, str:concat(convert(convert(math:ceil((dropoff_latitude - 41.47718278)/-0.004491556),"int"),"string"), "-", convert(convert(math:ceil((dropoff_longitude + 74.916578)/0.005986),"int"),"string")) as dropoff_cell
+insert into BigAreaStream;
+
+-- Compute routes using the grid cells of 500m x 500m
+from BigAreaStream
+select medallion, hack_license, pickup_datetime, dropoff_datetime, pickup_datetime_millisec, dropoff_datetime_millisec, trip_time_in_secs, trip_distance, pickup_longitude, pickup_latitude, dropoff_longitude, dropoff_latitude, payment_type, fare_amount, surcharge, mta_tax, tip_amount, tolls_amount, total_amount, str:concat(pickup_cell, "/", dropoff_cell) as route
+insert into RouteStream;
+
+
+------------------------------------------------------------- Query 1 -------------------------------------------------------------
+
+-- Compute the number of routes in the last 30 minutes
+from RouteStream#window.time(30 sec)
+select route, count() as count
+group by route
+having count > 0
+insert into CountRoutes;
+
+-- From the number of routes computed before select the 10 most frequent ones
+from CountRoutes
+select route, count
+order by count desc
+limit 10
+insert into FrequentRoutes;
+
+
+------------------------------------------------------------- Query 2 -------------------------------------------------------------
+
+-- Compute the average profit, that is, fare amount plus tip amount per pickup area
+-- To do that, we used a sliding window of 15 minutes
+from SmallAreaStream#window.time(15 sec)
+select avg(fare_amount+tip_amount) as avg_profit, pickup_cell
+group by pickup_cell
+insert into AvgProfitStream;
+
+-- Select the needed information for computing the number of empty taxis 
+-- To do that, we used a sliding window of 30 minutes
+from SmallAreaStream#window.time(30 sec)
+select dropoff_cell, pickup_cell, medallion
+insert into Taxis30;
+
+-- Compute the total number of taxis that had a dropoff in a given cell in the last 30 minutes
+from Taxis30
+select dropoff_cell, pickup_cell, count(medallion) as count_taxis
+group by dropoff_cell
+insert into AllTaxis;
+
+-- Compute the number of busy taxis
+-- To do that, we considered taxis that had a dropoff followed by a pickup in the last 30 minutes in the same cell
+from every e1 = Taxis30 -> e2 = Taxis30[e1.dropoff_cell == e2.pickup_cell]
+select e1.dropoff_cell, count(e2.medallion) as count_busy_taxis
+group by e1.dropoff_cell
+insert into BusyTaxis;
+
+-- Compute the number of empty taxis 
+-- To do that, we computed the difference between the total number of taxis and the number of busy taxis in a given cell in the last 30 minutes
+-- Note that, if the number of empty taxis in a given area is zero, we replace this value with 0.5, to increase the relative profitability of that area
+from AllTaxis#window.time(30 sec) as A join BusyTaxis#window.time(30 sec) as B on (A.dropoff_cell == B.dropoff_cell)
+select B.dropoff_cell, ifThenElse(A.count_taxis - B.count_busy_taxis == 0, 0.5, convert(A.count_taxis - B.count_busy_taxis,"double")) as count_empty_taxis
+group by B.dropoff_cell
+insert into EmptyTaxis;
+
+-- Compute the average profitability for each area
+-- For that, we divided the profit in the last 15 minutes by number of empty taxis in the last 30 minutes
+-- We then ordered by the profitability and limited the results to 5 to find the 5 most profitable areas
+from AvgProfitStream#window.time(15 sec) as P join EmptyTaxis#window.time(30 sec) as E on P.pickup_cell == E.dropoff_cell
+select P.pickup_cell, (P.avg_profit/E.count_empty_taxis) as profitability
+group by P.pickup_cell
+order by profitability desc
+limit 5
+insert into Profitability;
+
+
+------------------------------------------------------------- Query 3 -------------------------------------------------------------
+
+-- Compute the idle time for taxis 
+-- To do that, we computed the difference between the time of a dropoff of a ride and the time of the pickup of the following ride
+-- We only want idle times above zero and below one hour, so we apply a filter to the result
+from every e1 = ProcessedStream -> e2 = ProcessedStream[e1.medallion == e2.medallion]
+select e2.pickup_datetime_millisec - e1.dropoff_datetime_millisec as idle_time
+having idle_time > 0 and idle_time < 3600000
+insert into IdleTime;
+
+-- Turn the idle time computed in milliseconds to minutes 
+from IdleTime
+select time:extract(idle_time, "minute") as idle_time_min
+insert into IdleTimeMin;
+
+-- Compute the average idle time in the last 30 minutes
+from IdleTimeMin#window.time(30 sec)
+select avg(idle_time_min) as average_idle_time
+insert into AvgIdleTime;
+
+-- If the average idle time computed in the stream AvgIdleTime is greater than 5 minutes, emit an alert message and the corresponding value for the average idle time
+from AvgIdleTime[average_idle_time > 5]
+select "ALERT: High Idle Time" as alert, average_idle_time
+insert into AlertStream;
+
+
+------------------------------------------------------------- Query 4 -------------------------------------------------------------
+
+-- Emit an alert message for congested areas
+-- For that, we considered areas with two rides with increasing duration and a third ride with decreasing duration (to obtain a peak)
+from every event1 = BigAreaStream,
+            event2 = BigAreaStream[event1.pickup_cell == event2.pickup_cell and event1.trip_time_in_secs < event2.trip_time_in_secs],
+            event3 = BigAreaStream[event2.pickup_cell == event3.pickup_cell and event2.trip_time_in_secs > event3.trip_time_in_secs],
+            event4 = BigAreaStream[event3.pickup_cell == event4.pickup_cell and event3.trip_time_in_secs < event4.trip_time_in_secs],
+            event5 = BigAreaStream[event4.pickup_cell == event5.pickup_cell and event4.trip_time_in_secs < event5.trip_time_in_secs],
+            event6 = BigAreaStream[event5.pickup_cell == event6.pickup_cell and event5.trip_time_in_secs < event6.trip_time_in_secs]
+select "ALERT: Congested Area" as alert, event2.pickup_cell as area
+insert into CongestedAreas;
+
+
+------------------------------------------------------------- Query 5 -------------------------------------------------------------
+
+-- Compute the most pleasant taxi driver 
+-- To do that, we considered the average tip percentage for each taxi driver (that is, the percentage of the total amount that corresponds to the tip)
+from ProcessedStream#window.timeBatch(24 min)
+select hack_license, avg(sum(tip_amount)/sum(total_amount)) as avg_tip_percentage
+group by hack_license
+order by avg_tip_percentage desc
+limit 1
+insert into PleasantTaxiDriver;
+
+
+------------------------------------------------------------- Query 6 -------------------------------------------------------------
+
+-- Compute some statistics regarding the total paid amount for the areas where taxi drivers make more money
+from BigAreaStream#window.timeBatch(2 min)
+select pickup_cell, sum(total_amount) as sum_total_amount, round_value((sum(fare_amount)/sum(total_amount))*100) as fare, round_value((sum(tip_amount)/sum(total_amount))*100) as tip, round_value((sum(surcharge)/sum(total_amount))*100) as surcharge, round_value((sum(tolls_amount)/sum(total_amount))*100) as tolls, round_value((sum(mta_tax)/sum(total_amount))*100) as mta_tax
+group by pickup_cell
+order by sum_total_amount desc
+limit 5
+insert into Statistics;
+
+
+------------------------------------------------------------- Query 7 -------------------------------------------------------------
+
+-- Compute the amount of money made per mile in each route (the total amount divided by the trip distance)
+-- Then order by the amount per mile computed and show only the top 5 results
+from RouteStream#window.timeBatch(1 min)
+select route, sum(total_amount)/sum(trip_distance) as amount_per_mile
+group by route
+order by amount_per_mile desc
+limit 5
+insert into AmountPerMile;
